@@ -2,7 +2,12 @@
 # FISH IDENTIFICATION AGENT
 # ==========================================
 
+import logging
 from typing import Optional
+
+from app.fish_model_service import predict_fish
+
+logger = logging.getLogger(__name__)
 
 
 async def fish_identification_agent(
@@ -13,19 +18,12 @@ async def fish_identification_agent(
     """
     Fish Identification Agent
 
-    Responsible for identifying fish species from
-    an uploaded image.
-
-    The computer vision model will be connected
-    in a later step.
+    Uses the project's existing EfficientNet-B0 model to
+    classify the uploaded fish image and return a readable result.
     """
 
     if conversation is None:
         conversation = []
-
-    # ------------------------------------------
-    # CHECK IMAGE
-    # ------------------------------------------
 
     if not image_path:
         return (
@@ -34,25 +32,59 @@ async def fish_identification_agent(
             "to identify.\n\n"
             "I will analyze the image and provide:\n"
             "- Possible fish species\n"
-            "- Scientific name\n"
             "- Confidence score\n"
-            "- Identification features\n"
-            "- Habitat information\n"
-            "- Identification uncertainty"
+            "- Confidence level\n"
+            "- Top predictions"
         )
 
-    # ------------------------------------------
-    # TEMPORARY RESPONSE
-    # ------------------------------------------
-    # Computer vision model will be connected
-    # in the next step.
+    try:
+        result = predict_fish(image_path, top_k=5)
 
-    return (
-        "🐟 **Fish Identification Agent**\n\n"
-        f"Image received successfully.\n\n"
-        f"Image path: `{image_path}`\n\n"
-        "The image analysis model is not connected yet. "
-        "The next step will connect a computer vision model "
-        "for actual fish species identification."
-    )
+        top_predictions = result.get("top_predictions", [])
+        prediction_lines = [
+            f"{index + 1}. **{item['species']}** — {float(item['confidence']):.2f}%"
+            for index, item in enumerate(top_predictions[:5])
+        ]
+
+        summary = (
+            "🐟 **Fish Identification Result**\n\n"
+            f"**Predicted species:** {result['predicted_species']}\n\n"
+            f"**Confidence:** {float(result['confidence']):.2f}%\n\n"
+            f"**Confidence level:** {result['confidence_level']}\n\n"
+            f"**Status:** {result['status']}\n\n"
+            "### Top predictions\n\n"
+            + "\n".join(prediction_lines)
+        )
+
+        logger.info(
+            "Fish identification complete: image=%s predicted_species=%s confidence=%.2f",
+            image_path,
+            result["predicted_species"],
+            float(result["confidence"]),
+        )
+
+        return summary
+
+    except FileNotFoundError as error:
+        logger.exception("Fish identification failed: image not found")
+        return (
+            "🐟 **Fish Identification Agent**\n\n"
+            "The uploaded image could not be found or opened. "
+            "Please upload a valid fish image again."
+        )
+
+    except ValueError as error:
+        logger.exception("Fish identification failed: invalid image")
+        return (
+            "🐟 **Fish Identification Agent**\n\n"
+            f"The uploaded image could not be processed: {str(error)}"
+        )
+
+    except Exception as error:
+        logger.exception("Fish identification failed unexpectedly")
+        return (
+            "🐟 **Fish Identification Agent**\n\n"
+            "The fish classification model could not complete the prediction. "
+            "Please try another image or check the backend logs."
+        )
 

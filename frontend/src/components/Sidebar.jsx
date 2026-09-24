@@ -17,6 +17,8 @@ function Sidebar({
   currentChatId,
   onSelectChat,
   onDeleteChat,
+  onOpenProfile,
+  onOpenSettings,
 }) {
 
   // ==========================================================
@@ -193,6 +195,7 @@ function Sidebar({
 
         <button
           type="button"
+          onClick={onOpenSettings}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-zinc-700 transition hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
         >
 
@@ -385,6 +388,7 @@ function Sidebar({
 
         <button
           type="button"
+          onClick={onOpenProfile}
           className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-zinc-700 transition hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
         >
 

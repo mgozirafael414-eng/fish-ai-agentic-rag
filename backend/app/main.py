@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
 from app.api.fish_prediction import router as fish_prediction_router
+from app.api.account import router as account_router
+from app.api.conversations import router as conversations_router
 
 # ==========================================
 # CREATE FASTAPI APPLICATION
@@ -33,6 +35,8 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(documents_router)
 app.include_router(fish_prediction_router)
+app.include_router(account_router)
+app.include_router(conversations_router)
 
 
 # ==========================================

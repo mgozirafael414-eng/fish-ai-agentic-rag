@@ -71,7 +71,18 @@ function ChatInput({
         // ------------------------------------
 
         if (onFishPrediction) {
-          onFishPrediction(data);
+          await onFishPrediction(data);
+        }
+
+        if (!data.success || data.status === "NOT_FISH") {
+          setUploadStatus(
+            `⚠️ ${
+              data.message ||
+              "The uploaded image does not appear to contain a fish."
+            }`
+          );
+          event.target.value = "";
+          return;
         }
 
         // ------------------------------------

@@ -7,37 +7,43 @@ import WelcomeScreen from "./components/WelcomeScreen";
 import ChatInput from "./components/ChatInput";
 import MessageBubble from "./components/MessageBubble";
 import AgentActivity from "./components/AgentActivity";
+import AuthScreen from "./components/AuthScreen";
+import AccountPanel from "./components/AccountPanel";
 
-import { sendChatMessage } from "./services/api";
+import {
+  AUTH_TOKEN_KEY,
+  createConversation,
+  deleteConversation,
+  getConversation,
+  getConversations,
+  getMe,
+  getProfile,
+  getSettings,
+  logout,
+  saveConversationMessage,
+  sendChatMessage,
+  updateProfile,
+  updateSettings,
+} from "./services/api";
 
-const CHAT_STORAGE_KEY = "fishai_recent_chats";
+/* eslint-disable react-hooks/immutability */
+
 const THEME_STORAGE_KEY = "fishai_theme";
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [authReady, setAuthReady] = useState(() => !localStorage.getItem(AUTH_TOKEN_KEY));
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [settings, setSettings] = useState(null);
+  const [accountPanel, setAccountPanel] = useState(null);
+  const [workspaceError, setWorkspaceError] = useState("");
 
   // ==========================================
   // DARK MODE
   // ==========================================
 
-  const [darkMode, setDarkMode] = useState(() => {
-    try {
-      const savedTheme =
-        localStorage.getItem(THEME_STORAGE_KEY);
-
-      if (savedTheme === "dark") {
-        return true;
-      }
-
-      if (savedTheme === "light") {
-        return false;
-      }
-
-      return false;
-    } catch (error) {
-      return false;
-    }
-  });
+  const [darkMode, setDarkMode] = useState(false);
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -48,6 +54,38 @@ function App() {
     useState(null);
 
   const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (!token) {
+      return;
+    }
+
+    Promise.all([getMe(), getProfile(), getSettings(), getConversations()])
+      .then(async ([meData, profileData, settingsData, conversationsData]) => {
+        setUser(meData.user);
+        setProfile(profileData.profile);
+        setSettings(settingsData.settings);
+        setDarkMode(Boolean(settingsData.settings.dark_mode));
+        setRecentChats(conversationsData.conversations);
+        const first = conversationsData.conversations[0];
+        if (first) {
+          const detail = await getConversation(first.id);
+          setCurrentChatId(first.id);
+          setMessages(detail.conversation.messages.map((item) => ({
+            id: item.id,
+            role: item.role,
+            content: item.content,
+            fishPrediction: item.metadata,
+          })));
+        }
+      })
+      .catch((error) => {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        setWorkspaceError(error.message || "Could not load your workspace.");
+      })
+      .finally(() => setAuthReady(true));
+  }, []);
 
   // ==========================================
   // APPLY THEME
@@ -60,10 +98,7 @@ function App() {
       root.classList.add("dark");
       root.style.colorScheme = "dark";
 
-      localStorage.setItem(
-        THEME_STORAGE_KEY,
-        "dark"
-      );
+      localStorage.setItem(THEME_STORAGE_KEY, "dark");
     } else {
       root.classList.remove("dark");
       root.style.colorScheme = "light";
@@ -75,123 +110,42 @@ function App() {
     }
   }, [darkMode]);
 
-  // ==========================================
-  // LOAD RECENT CHATS
-  // ==========================================
-
-  useEffect(() => {
-    try {
-      const savedChats =
-        localStorage.getItem(CHAT_STORAGE_KEY);
-
-      if (savedChats) {
-        const parsedChats = JSON.parse(savedChats);
-
-        if (Array.isArray(parsedChats)) {
-          setRecentChats(parsedChats);
-        }
-      }
-    } catch (error) {
-      console.error(
-        "Failed to load recent chats:",
-        error
-      );
-    }
-  }, []);
-
-  // ==========================================
-  // SAVE RECENT CHATS
-  // ==========================================
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        CHAT_STORAGE_KEY,
-        JSON.stringify(recentChats)
-      );
-    } catch (error) {
-      console.error(
-        "Failed to save recent chats:",
-        error
-      );
-    }
-  }, [recentChats]);
-
-  // ==========================================
-  // AUTO SCROLL
-  // ==========================================
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
-  }, [messages, agentStatus]);
-
-  // ==========================================
-  // CREATE CHAT TITLE
-  // ==========================================
-
-  const createChatTitle = (message) => {
-    const cleanMessage = message.trim();
-
-    if (cleanMessage.length <= 45) {
-      return cleanMessage;
-    }
-
-    return `${cleanMessage.substring(0, 45)}...`;
-  };
-
-  // ==========================================
-  // SAVE / UPDATE CHAT
-  // ==========================================
-
-  const saveChat = (chatId, chatMessages) => {
-    if (!chatId || chatMessages.length === 0) {
-      return;
-    }
-
-    const firstUserMessage = chatMessages.find(
-      (message) => message.role === "user"
-    );
-
-    const title = firstUserMessage
-      ? createChatTitle(firstUserMessage.content)
-      : "New chat";
-
-    const now = Date.now();
-
-    setRecentChats((previousChats) => {
-      const existingChat = previousChats.find(
-        (chat) => chat.id === chatId
-      );
-
-      const updatedChat = {
-        id: chatId,
-        title: existingChat?.title || title,
-        messages: chatMessages,
-        createdAt:
-          existingChat?.createdAt || now,
-        updatedAt: now,
-      };
-
-      const otherChats = previousChats.filter(
-        (chat) => chat.id !== chatId
-      );
-
-      return [updatedChat, ...otherChats];
-    });
+  const refreshConversations = async () => {
+    const data = await getConversations();
+    setRecentChats(data.conversations);
   };
 
   // ==========================================
   // HANDLE FISH PREDICTION
   // ==========================================
 
-  const handleFishPrediction = (predictionData) => {
-    let chatId = currentChatId;
-
-    if (!chatId) {
-      chatId = `chat_${Date.now()}`;
+  const handleFishPrediction = async (predictionData) => {
+    const chatId = currentChatId || (await createConversation("Fish image identification")).conversation.id;
+    if (!currentChatId) {
       setCurrentChatId(chatId);
+    }
+
+    if (
+      !predictionData?.success ||
+      predictionData?.status === "NOT_FISH"
+    ) {
+      const rejectionContent =
+        `**NOT_FISH**\n\n${
+          predictionData?.message ||
+          "The uploaded image does not appear to contain a fish. Please upload a clear image of a fish."
+        }`;
+
+      const rejectionMessage = {
+        id: Date.now(),
+        role: "assistant",
+        content: rejectionContent,
+        fishPrediction: predictionData,
+      };
+
+      await saveConversationMessage(chatId, "assistant", rejectionContent, predictionData);
+      setMessages((previousMessages) => [...previousMessages, rejectionMessage]);
+      await refreshConversations();
+      return;
     }
 
     const species =
@@ -265,15 +219,9 @@ function App() {
       fishPrediction: predictionData,
     };
 
-    const updatedMessages = [
-      ...messages,
-      fishMessage,
-    ];
-
-    setMessages(updatedMessages);
-
-    // Save prediction inside Recent Chats
-    saveChat(chatId, updatedMessages);
+    await saveConversationMessage(chatId, "assistant", predictionContent, predictionData);
+    setMessages((previousMessages) => [...previousMessages, fishMessage]);
+    await refreshConversations();
   };
 
   // ==========================================
@@ -287,12 +235,7 @@ function App() {
       return;
     }
 
-    let chatId = currentChatId;
-
-    if (!chatId) {
-      chatId = `chat_${Date.now()}`;
-      setCurrentChatId(chatId);
-    }
+    const chatId = currentChatId;
 
     const conversation = messages.map(
       (message) => ({
@@ -322,7 +265,8 @@ function App() {
 
       const data = await sendChatMessage(
         trimmedMessage,
-        conversation
+        conversation,
+        chatId
       );
 
       if (!data.success) {
@@ -338,6 +282,8 @@ function App() {
         content: data.response,
       };
 
+      setCurrentChatId(data.conversation_id);
+
       const finalMessages = [
         ...updatedMessages,
         aiMessage,
@@ -345,7 +291,7 @@ function App() {
 
       setMessages(finalMessages);
 
-      saveChat(chatId, finalMessages);
+      await refreshConversations();
     } catch (error) {
       console.error(
         "FishAI Chat Error:",
@@ -366,7 +312,6 @@ function App() {
 
       setMessages(finalMessages);
 
-      saveChat(chatId, finalMessages);
     } finally {
       setAgentStatus("");
     }
@@ -387,31 +332,34 @@ function App() {
   // SELECT CHAT
   // ==========================================
 
-  const handleSelectChat = (chatId) => {
-    const selectedChat = recentChats.find(
-      (chat) => chat.id === chatId
-    );
-
-    if (!selectedChat) {
-      return;
+  const handleSelectChat = async (chatId) => {
+    try {
+      const data = await getConversation(chatId);
+      setCurrentChatId(chatId);
+      setMessages(data.conversation.messages.map((item) => ({
+        id: item.id,
+        role: item.role,
+        content: item.content,
+        fishPrediction: item.metadata,
+      })));
+      setInput("");
+      setAgentStatus("");
+    } catch (error) {
+      setWorkspaceError(error.message || "Could not load that conversation.");
     }
-
-    setCurrentChatId(chatId);
-    setMessages(selectedChat.messages || []);
-    setInput("");
-    setAgentStatus("");
   };
 
   // ==========================================
   // DELETE CHAT
   // ==========================================
 
-  const handleDeleteChat = (chatId) => {
-    setRecentChats((previousChats) =>
-      previousChats.filter(
-        (chat) => chat.id !== chatId
-      )
-    );
+  const handleDeleteChat = async (chatId) => {
+    try {
+      await deleteConversation(chatId);
+      setRecentChats((previousChats) => previousChats.filter((chat) => chat.id !== chatId));
+    } catch (error) {
+      setWorkspaceError(error.message || "Could not delete that conversation.");
+    }
 
     if (currentChatId === chatId) {
       setCurrentChatId(null);
@@ -454,10 +402,62 @@ function App() {
   // TOGGLE DARK MODE
   // ==========================================
 
-  const toggleDarkMode = () => {
-    setDarkMode(
-      (previousMode) => !previousMode
-    );
+  const toggleDarkMode = async () => {
+    const nextMode = !darkMode;
+    setDarkMode(nextMode);
+    try {
+      const data = await updateSettings(nextMode);
+      setSettings(data.settings);
+    } catch (error) {
+      setWorkspaceError(error.message || "Could not save settings.");
+    }
+  };
+
+  const handleAuthenticated = async (data) => {
+    const [profileData, settingsData, conversationsData] = await Promise.all([
+      getProfile(),
+      getSettings(),
+      getConversations(),
+    ]);
+    setUser(data.user);
+    setProfile(profileData.profile);
+    setSettings(settingsData.settings);
+    setDarkMode(Boolean(settingsData.settings.dark_mode));
+    setRecentChats(conversationsData.conversations);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setUser(null);
+    setProfile(null);
+    setSettings(null);
+    setRecentChats([]);
+    setMessages([]);
+    setCurrentChatId(null);
+    setAccountPanel(null);
+  };
+
+  const handleProfileSaved = async (displayName) => {
+    const data = await updateProfile(displayName);
+    setProfile(data.profile);
+    setUser(data.profile);
+  };
+
+  const handleSettingsSaved = async (nextDarkMode) => {
+    const data = await updateSettings(nextDarkMode);
+    setSettings(data.settings);
+    setDarkMode(Boolean(data.settings.dark_mode));
+  };
+
+  const openSettings = async () => {
+    try {
+      const data = await getSettings();
+      setSettings(data.settings);
+      setDarkMode(Boolean(data.settings.dark_mode));
+      setAccountPanel("settings");
+    } catch (error) {
+      setWorkspaceError(error.message || "Could not load settings.");
+    }
   };
 
   // ==========================================
@@ -471,6 +471,14 @@ function App() {
   const closeSidebar = () => {
     setSidebarOpen(false);
   };
+
+  if (!authReady) {
+    return <div className="flex min-h-screen items-center justify-center text-sm text-zinc-500">Loading FishAI...</div>;
+  }
+
+  if (!user) {
+    return <AuthScreen onAuthenticated={handleAuthenticated} />;
+  }
 
   // ==========================================
   // UI
@@ -490,6 +498,8 @@ function App() {
               currentChatId={currentChatId}
               onSelectChat={handleSelectChat}
               onDeleteChat={handleDeleteChat}
+              onOpenProfile={() => setAccountPanel("profile")}
+              onOpenSettings={openSettings}
             />
           </div>
         )}
@@ -546,6 +556,10 @@ function App() {
           {/* CHAT AREA */}
           <section className="flex-1 overflow-y-auto bg-white transition-colors duration-200 dark:bg-zinc-950">
 
+            {workspaceError && (
+              <p className="mx-auto max-w-4xl px-4 pt-4 text-sm text-red-600">{workspaceError}</p>
+            )}
+
             {messages.length === 0 ? (
               <WelcomeScreen
                 onSuggestion={handleSuggestion}
@@ -596,6 +610,17 @@ function App() {
 
         </main>
       </div>
+      {accountPanel && (
+        <AccountPanel
+          mode={accountPanel}
+          profile={profile}
+          settings={settings}
+          onClose={() => setAccountPanel(null)}
+          onProfileSaved={handleProfileSaved}
+          onSettingsSaved={handleSettingsSaved}
+          onLogout={handleLogout}
+        />
+      )}
     </div>
   );
 }

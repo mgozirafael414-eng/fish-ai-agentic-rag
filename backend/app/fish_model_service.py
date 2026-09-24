@@ -4,6 +4,7 @@
 # ============================================================
 
 import json
+import logging
 from pathlib import Path
 
 import torch
@@ -11,6 +12,8 @@ import torch.nn as nn
 
 from PIL import Image
 from torchvision import models, transforms
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -190,31 +193,37 @@ def predict_fish(
     top_k: int = 5
 ):
 
-    # --------------------------------------------------------
-    # Load image
-    # --------------------------------------------------------
+    if not image_path:
+        raise ValueError("Image path is required.")
 
-    image = Image.open(
-        image_path
-    ).convert("RGB")
+    path = Path(image_path)
 
+    if not path.exists():
+        raise FileNotFoundError(f"Image file not found: {image_path}")
 
-    # --------------------------------------------------------
-    # Preprocess image
-    # --------------------------------------------------------
+    try:
+        with Image.open(path) as image:
+            image.verify()
 
-    image_tensor = TRANSFORM(
-        image
-    )
+        with Image.open(path) as image:
+            rgb_image = image.convert("RGB")
+            image_width, image_height = rgb_image.size
+            logger.info(
+                "Image received: filename=%s format=%s size=%sx%s",
+                path.name,
+                image.format or "unknown",
+                image_width,
+                image_height,
+            )
 
-    image_tensor = image_tensor.unsqueeze(
-        0
-    )
+            image_tensor = TRANSFORM(rgb_image)
 
-    image_tensor = image_tensor.to(
-        DEVICE
-    )
+    except Exception as exc:
+        raise ValueError(f"Invalid image: {exc}") from exc
 
+    image_tensor = image_tensor.unsqueeze(0).to(DEVICE)
+
+    logger.info("Input tensor shape=%s", tuple(image_tensor.shape))
 
     # --------------------------------------------------------
     # Model inference
@@ -269,6 +278,13 @@ def predict_fish(
 
     confidence = float(
         top_probabilities[0] * 100
+    )
+
+    logger.info(
+        "Predicted class index=%s predicted_species=%s confidence=%.2f",
+        predicted_index,
+        predicted_species,
+        confidence,
     )
 
 

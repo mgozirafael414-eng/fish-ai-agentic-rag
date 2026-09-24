@@ -5,9 +5,9 @@
 
 from pathlib import Path
 from uuid import uuid4
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from app.ai_service import generate_ai_response
@@ -18,6 +18,8 @@ from app.agents.fish_agent import fish_knowledge_agent
 from app.agents.rag_agent import rag_agent
 from app.agents.time_agent import time_agent
 from app.agents.fish_identification_agent import fish_identification_agent
+from app.auth import current_user
+from app.db import add_message, create_conversation, get_conversation
 
 
 # ==========================================
@@ -46,6 +48,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     conversation: List[ChatMessage] = []
+    conversation_id: Optional[int] = None
 
 
 # ==========================================
@@ -57,6 +60,7 @@ class ChatResponse(BaseModel):
     response: str
     route: str
     agent: str
+    conversation_id: Optional[int] = None
 
 
 # ==========================================
@@ -64,7 +68,7 @@ class ChatResponse(BaseModel):
 # ==========================================
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, user=Depends(current_user)):
 
     # ------------------------------------------
     # GET USER MESSAGE
@@ -82,6 +86,25 @@ async def chat(request: ChatRequest):
         )
 
     try:
+
+        if request.conversation_id:
+            stored_conversation = get_conversation(user["id"], request.conversation_id)
+            if not stored_conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            conversation_id = request.conversation_id
+            conversation = [
+                {"role": item["role"], "content": item["content"]}
+                for item in stored_conversation["messages"]
+            ]
+        else:
+            conversation_record = create_conversation(
+                user["id"],
+                user_message[:60],
+            )
+            conversation_id = conversation_record["id"]
+            conversation = []
+
+        add_message(user["id"], conversation_id, "user", user_message)
 
         # ==========================================
         # QUERY ROUTER
@@ -114,16 +137,6 @@ async def chat(request: ChatRequest):
         # ==========================================
         # CONVERSATION HISTORY
         # ==========================================
-
-        conversation = [
-            {
-                "role": item.role,
-                "content": item.content
-            }
-
-            for item in request.conversation
-        ]
-
 
         # ==========================================
         # FISH INFORMATION AGENT
@@ -189,17 +202,23 @@ async def chat(request: ChatRequest):
         # RETURN RESPONSE
         # ==========================================
 
+        add_message(user["id"], conversation_id, "assistant", ai_response)
+
         return ChatResponse(
             success=True,
             response=ai_response,
             route=selected_route,
-            agent=selected_agent
+            agent=selected_agent,
+            conversation_id=conversation_id,
         )
 
 
     # ==========================================
     # ERROR HANDLING
     # ==========================================
+
+    except HTTPException:
+        raise
 
     except Exception as error:
 
