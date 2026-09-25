@@ -5,6 +5,7 @@
 
 import json
 import logging
+from functools import lru_cache
 from pathlib import Path
 
 import torch
@@ -60,60 +61,46 @@ with open(
 NUM_CLASSES = len(CLASS_NAMES)
 
 
-# ============================================================
-# CREATE EFFICIENTNET-B0
-# ============================================================
+@lru_cache(maxsize=1)
+def _get_model():
 
-model = models.efficientnet_b0(
-    weights=None
-)
-
-
-# ============================================================
-# REPLACE CLASSIFIER
-# ============================================================
-
-in_features = (
-    model.classifier[1].in_features
-)
-
-model.classifier[1] = nn.Linear(
-    in_features,
-    NUM_CLASSES
-)
-
-
-# ============================================================
-# LOAD TRAINED MODEL
-# ============================================================
-
-checkpoint = torch.load(
-    MODEL_PATH,
-    map_location=DEVICE
-)
-
-
-# Handle checkpoint structure
-if "model_state_dict" in checkpoint:
-
-    model.load_state_dict(
-        checkpoint["model_state_dict"]
+    model = models.efficientnet_b0(
+        weights=None
     )
 
-else:
-
-    model.load_state_dict(
-        checkpoint
+    in_features = (
+        model.classifier[1].in_features
     )
 
+    model.classifier[1] = nn.Linear(
+        in_features,
+        NUM_CLASSES
+    )
 
-# ============================================================
-# MOVE MODEL TO DEVICE
-# ============================================================
+    checkpoint = torch.load(
+        MODEL_PATH,
+        map_location=DEVICE
+    )
 
-model = model.to(DEVICE)
+    if "model_state_dict" in checkpoint:
 
-model.eval()
+        model.load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+
+    else:
+
+        model.load_state_dict(
+            checkpoint
+        )
+
+    model = model.to(DEVICE)
+
+    model.eval()
+
+    logger.info("Fish classification model loaded: device=%s", DEVICE)
+
+    return model
 
 
 # ============================================================
@@ -228,6 +215,8 @@ def predict_fish(
     # --------------------------------------------------------
     # Model inference
     # --------------------------------------------------------
+
+    model = _get_model()
 
     with torch.no_grad():
 

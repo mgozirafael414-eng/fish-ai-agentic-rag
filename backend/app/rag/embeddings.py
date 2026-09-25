@@ -3,6 +3,8 @@
 # EMBEDDING SERVICE
 # ============================================================
 
+from functools import lru_cache
+
 from sentence_transformers import SentenceTransformer
 
 
@@ -13,19 +15,21 @@ from sentence_transformers import SentenceTransformer
 MODEL_NAME = "all-MiniLM-L6-v2"
 
 
-print(
-    f"[EMBEDDINGS] Loading model: {MODEL_NAME}"
-)
+@lru_cache(maxsize=1)
+def _get_embedding_model() -> SentenceTransformer:
+    print(
+        f"[EMBEDDINGS] Loading model: {MODEL_NAME}"
+    )
 
+    model = SentenceTransformer(
+        MODEL_NAME
+    )
 
-embedding_model = SentenceTransformer(
-    MODEL_NAME
-)
+    print(
+        "[EMBEDDINGS] Model loaded successfully."
+    )
 
-
-print(
-    "[EMBEDDINGS] Model loaded successfully."
-)
+    return model
 
 
 # ============================================================
@@ -44,7 +48,7 @@ def generate_embedding(
             "Text cannot be empty."
         )
 
-    embedding = embedding_model.encode(
+    embedding = _get_embedding_model().encode(
         text,
         convert_to_numpy=True,
     )
@@ -66,7 +70,7 @@ def generate_embeddings(
     if not texts:
         return []
 
-    embeddings = embedding_model.encode(
+    embeddings = _get_embedding_model().encode(
         texts,
         convert_to_numpy=True,
     )
